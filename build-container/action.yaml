@@ -1,0 +1,113 @@
+name: publish-image
+inputs:
+  arch:
+    description: |
+      The architecture string used for naming.
+    type: string
+    default: amd64
+  dockerfile:
+    descrption: |
+      The dockerfile to build
+    required: true
+    type: string
+  image:
+    descrption: |
+      The image name component in a fully qualified image. For reference:
+      <registry>/<repo>/<image>:<tag>
+    required: true
+    type: string
+  platform:
+    description: |
+      The Docker buildx platform for the image to target.
+    required: true
+    type: string
+    default: linux/amd64
+  registry:
+    description: |
+      The container registry to publish.
+    required: true
+    type: string
+  repo:
+    description: |
+      The repository component in a fully qualified image. For reference:
+      <registry>/<repo>/<image>:<tag>
+  runner:
+    description: |
+      The runner used to build the images
+    required: true
+    type: string
+  GH_TOKEN:
+    description: |
+      The GitHub token with permission to publish images to ghcr.
+    required: true
+runs:
+  using: composite
+  steps: 
+    - name: Checkout code
+      uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+    - name: Install cosign
+      uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ inputs.GH_TOKEN }}
+    - name: Docker meta
+      id: meta
+      uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
+      with:
+        images: ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}
+    - name: Build and push ${{ inputs.image }} for ${{ inputs.platform }}
+      id: build-image
+      uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+      with:
+        context: .
+        file: ${{ inputs.dockerfile }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: ${{ inputs.platform }}
+        push: true
+        sbom: true
+        provenance: mode=max
+        tags: ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}
+        outputs: |
+          type=image,push=true,push-by-digest=true,name-canonical=true
+    # We need to disable the new bundle format enabled by default since
+    # cosign v3.x.x because some verification tools (e.g. slsactl, hauler and old
+    # cosign) are not able to properly verify the signatures using this
+    # new format
+    - name: Sign container image with cosign v2 signature format
+      shell: bash
+      run: |
+        cosign sign --yes --new-bundle-format=false --use-signing-config=false \
+          ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
+
+    - name: Sign container image with cosign v3 signature format
+      shell: bash
+      run: |
+        cosign sign --yes --new-bundle-format=true --use-signing-config=true \
+          ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
+
+    - name: Verify container image signature
+      shell: bash
+      run: |
+        cosign verify \
+          --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+          --certificate-identity="https://github.com/${{github.repository}}/.github/workflows/release.yml@${{ github.ref }}" \
+          ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
+
+    - name: Export digest
+      shell: bash
+      run: |
+        mkdir -p ${{ runner.temp }}/digests
+        digest="${{ steps.build-image.outputs.digest }}"
+        echo "${digest}" > "${{ runner.temp }}/digests/${{ inputs.image }}-${{ inputs.arch }}.txt"
+
+    - name: Upload digest
+      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      with:
+        name: digest-${{ inputs.image }}-${{ inputs.arch }}
+        path: ${{ runner.temp }}/digests/*.txt
+        retention-days: 1
