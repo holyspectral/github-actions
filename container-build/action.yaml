@@ -2,40 +2,22 @@ name: publish-image
 inputs:
   arch:
     description: |
-      The architecture string used for naming.
-    type: string
+      List of target architectures to build.
     default: amd64
   dockerfile:
     descrption: |
       The dockerfile to build
-    required: true
-    type: string
+    default: Dockerfile
   image:
     descrption: |
       The image name component in a fully qualified image. For reference:
-      <registry>/<repo>/<image>:<tag>
+      ghcr.io/<repo>/<image>:<tag>
     required: true
-    type: string
-  platform:
-    description: |
-      The Docker buildx platform for the image to target.
-    required: true
-    type: string
-    default: linux/amd64
-  registry:
-    description: |
-      The container registry to publish.
-    required: true
-    type: string
   repo:
     description: |
       The repository component in a fully qualified image. For reference:
-      <registry>/<repo>/<image>:<tag>
-  runner:
-    description: |
-      The runner used to build the images
+      ghcr.io/<repo>/<image>:<tag>
     required: true
-    type: string
   GH_TOKEN:
     description: |
       The GitHub token with permission to publish images to ghcr.
@@ -59,19 +41,19 @@ runs:
       id: meta
       uses: docker/metadata-action@318604b99e75e41977312d83839a89be02ca4893 # v5.9.0
       with:
-        images: ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}
-    - name: Build and push ${{ inputs.image }} for ${{ inputs.platform }}
+        images: ghcr.io/${{ inputs.repo }}/${{ inputs.image }}
+    - name: Build and push ${{ inputs.image }} for ${{ inputs.arch }}
       id: build-image
       uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
       with:
         context: .
         file: ${{ inputs.dockerfile }}
         labels: ${{ steps.meta.outputs.labels }}
-        platforms: ${{ inputs.platform }}
+        platforms: linux/${{ inputs.arch }}
         push: true
         sbom: true
         provenance: mode=max
-        tags: ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}
+        tags: ghcr.io/${{ inputs.repo }}/${{ inputs.image }}
         outputs: |
           type=image,push=true,push-by-digest=true,name-canonical=true
     # We need to disable the new bundle format enabled by default since
@@ -82,21 +64,21 @@ runs:
       shell: bash
       run: |
         cosign sign --yes --new-bundle-format=false --use-signing-config=false \
-          ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
+          ghcr.io/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
 
     - name: Sign container image with cosign v3 signature format
       shell: bash
       run: |
         cosign sign --yes --new-bundle-format=true --use-signing-config=true \
-          ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
+          ghcr.io/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
 
     - name: Verify container image signature
       shell: bash
       run: |
         cosign verify \
           --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-          --certificate-identity="https://github.com/${{github.repository}}/.github/workflows/release.yml@${{ github.ref }}" \
-          ${{ inputs.registry }}/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
+          --certificate-identity="${{ github.server_url }}/${{ github.workflow_ref }}" \
+          ghcr.io/${{ inputs.repo }}/${{ inputs.image }}@${{ steps.build-image.outputs.digest }}
 
     - name: Export digest
       shell: bash
