@@ -38,6 +38,7 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
     - name: Retrieve tag name (tag)
+      shell: bash
       run: |
         echo TAG_NAME=$(echo $GITHUB_REF | sed -e "s|refs/tags/||") >> $GITHUB_ENV
     - name: Create and push multi-arch manifest for ${{ inputs.image }}
@@ -93,6 +94,7 @@ runs:
         echo "MULTI_ARCH_MANIFEST_DIGEST=$multi_arch_manifest_digest" >> $GITHUB_ENV
 
     - name: Verify multi-arch manifest signature
+      shell: bash
       run: |
         cosign verify \
           --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
