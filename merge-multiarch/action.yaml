@@ -1,6 +1,5 @@
 name: merge-multiarch-images
 inputs:
-  digest_path:
   digest_artifact_prefix:
     default: digest-
   image:
@@ -44,6 +43,7 @@ runs:
     - name: Create and push multi-arch manifest for ${{ inputs.image }}
       id: create-manifest
       working-directory: ${{ runner.temp }}/digests
+      shell: bash
       run: |
         set -e
 
